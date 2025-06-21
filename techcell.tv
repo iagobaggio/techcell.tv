@@ -1,0 +1,634 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+    getFirestore, 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    addDoc, 
+    onSnapshot,
+    doc,
+    updateDoc,
+    deleteDoc
+} from 'firebase/firestore';
+import { 
+    getAuth, 
+    signInAnonymously,
+    signInWithCustomToken,
+    onAuthStateChanged
+} from "firebase/auth";
+
+// --- Ícones em SVG ---
+const UserIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 text-slate-400"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>;
+const LockIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 text-slate-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>;
+const EyeIcon = ({ toggleVisibility, isVisible }) => (
+    <svg onClick={toggleVisibility} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 text-slate-400 cursor-pointer hover:text-cyan-400">
+        {isVisible ? (
+            <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>
+        ) : (
+            <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" x2="22" y1="2" y2="22" /></>
+        )}
+    </svg>
+);
+const EditIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>;
+const ToggleOnIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 5H8a7 7 0 0 0 0 14h8a7 7 0 0 0 0-14z"></path><circle cx="16" cy="12" r="3"></circle></svg>;
+const ToggleOffIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 5H8a7 7 0 0 0 0 14h8a7 7 0 0 0 0-14z"></path><circle cx="8" cy="12" r="3"></circle></svg>;
+const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>;
+const TvIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400">
+    <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
+    <polyline points="17 2 12 7 7 2"></polyline>
+  </svg>
+);
+const DollarSignIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>;
+
+// --- Configuração e Inicialização do Firebase ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+let app, db, auth;
+
+if (firebaseConfig) {
+    try {
+        app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+        const authenticate = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+            } catch (error) { console.error("Firebase auth failed:", error); }
+        };
+        authenticate();
+    } catch (error) { console.error("Erro ao inicializar Firebase:", error.message); db = null; }
+} else { console.error("Configuração do Firebase não encontrada."); db = null; }
+
+const customersCollectionPath = `artifacts/${appId}/public/data/customers`;
+
+const subscriptionPlans = {
+    'Basic': { name: 'Basic', value: 28.00, link: 'https://pay.infinitepay.io/techcell_tv/VC1D-EHwSYxUAR-28,00' },
+    'Deluxe': { name: 'Deluxe', value: 35.00, link: 'https://pay.infinitepay.io/techcell_tv/VC1D-5lEaEGX8Sd-35,00' }
+};
+
+// --- Componentes ---
+const LoadingSpinner = () => (
+    <div className="flex flex-col items-center justify-center h-full min-h-screen bg-slate-900 text-white">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-500"></div>
+        <p className="mt-4 text-lg">Carregando...</p>
+    </div>
+);
+
+const Notification = ({ message, type, onClose }) => {
+    if (!message) return null;
+    const typeStyles = { success: "bg-green-500", error: "bg-red-500" };
+    return (
+        <div className={`fixed top-5 right-5 p-4 rounded-lg shadow-lg text-white flex items-center z-50 ${typeStyles[type] || 'bg-blue-500'}`}>
+            <span className="flex-grow">{message}</span>
+            <button onClick={onClose} className="ml-4 font-bold text-xl">&times;</button>
+        </div>
+    );
+};
+
+const BackgroundBlobs = () => (
+     <>
+        <style>{`
+            @keyframes blob {
+                0% { transform: translate(0px, 0px) scale(1); }
+                33% { transform: translate(30px, -50px) scale(1.1); }
+                66% { transform: translate(-20px, 20px) scale(0.9); }
+                100% { transform: translate(0px, 0px) scale(1); }
+            }
+            .animation-delay-2000 { animation-delay: 2s; }
+            .animation-delay-4000 { animation-delay: 4s; }
+            .animate-blob { animation: blob 7s infinite; }
+        `}</style>
+        <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-600 rounded-full mix-blend-screen filter blur-xl opacity-50 animate-blob"></div>
+        <div className="absolute top-0 -right-4 w-72 h-72 bg-cyan-400 rounded-full mix-blend-screen filter blur-xl opacity-50 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-screen filter blur-xl opacity-50 animate-blob animation-delay-4000"></div>
+    </>
+);
+
+function LoginPage({ onLogin, onAdminLogin }) {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [loginType, setLoginType] = useState('customer');
+    const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setError('');
+        setIsLoading(true);
+
+        if (!db) {
+            setError("A conexão com o banco de dados falhou.");
+            setIsLoading(false);
+            return;
+        }
+
+        if (loginType === 'admin') {
+            if (username === '@Iago2021' && password === '@Iago2021') onAdminLogin();
+            else setError('Credenciais de administrador inválidas.');
+        } else {
+            try {
+                const q = query(collection(db, customersCollectionPath), where("username", "==", username.trim()));
+                const querySnapshot = await getDocs(q);
+                
+                if (querySnapshot.empty) {
+                    setError('Usuário não encontrado.');
+                } else {
+                    let userFound = false;
+                    let errorMsg = '';
+                    querySnapshot.forEach((doc) => {
+                        const customer = doc.data();
+                        if (customer && customer.password === password) {
+                            if (customer.accountStatus === 'Suspenso') {
+                                errorMsg = 'Sua conta está suspensa. Entre em contato com o suporte.';
+                            } else {
+                                onLogin({ id: doc.id, ...customer });
+                            }
+                            userFound = true;
+                        }
+                    });
+
+                    if (!userFound) {
+                        setError('Senha incorreta.');
+                    } else if (errorMsg) {
+                        setError(errorMsg);
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao fazer login:", err);
+                setError('Ocorreu um erro ao tentar fazer login.');
+            }
+        }
+        setIsLoading(false);
+    };
+
+    return (
+        <div className="relative min-h-screen w-full bg-slate-900 overflow-hidden">
+            <BackgroundBlobs />
+            <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+                <div className="w-full max-w-md p-8 space-y-8 bg-slate-800/50 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700/50">
+                    <div className="flex flex-col items-center text-center">
+                        <div className="flex items-center justify-center gap-3 mb-2">
+                           <TvIcon />
+                           <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-wider font-sans">
+                                Tech Cell <span className="text-cyan-400">TV</span>
+                            </h1>
+                        </div>
+                         <p className="text-slate-400">Seu portal de gerenciamento IPTV</p>
+                    </div>
+
+                    <div className="bg-slate-900/60 p-1 rounded-lg">
+                        <div className="flex">
+                            <button onClick={() => setLoginType('customer')} className={`w-1/2 py-2.5 text-center font-semibold rounded-md transition-all duration-300 ${loginType === 'customer' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' : 'text-slate-300 hover:text-white'}`}>
+                                Cliente
+                            </button>
+                            <button onClick={() => setLoginType('admin')} className={`w-1/2 py-2.5 text-center font-semibold rounded-md transition-all duration-300 ${loginType === 'admin' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' : 'text-slate-300 hover:text-white'}`}>
+                                Admin
+                            </button>
+                        </div>
+                    </div>
+
+                    <form onSubmit={handleLogin} className="space-y-6">
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2"><UserIcon /></span>
+                            <input type="text" placeholder="Usuário" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full pl-10 pr-3 py-3 text-white bg-slate-700/50 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300" />
+                        </div>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2"><LockIcon /></span>
+                            <input type={showPassword ? "text" : "password"} placeholder="Senha" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full pl-10 pr-10 py-3 text-white bg-slate-700/50 border border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-300" />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2"><EyeIcon toggleVisibility={() => setShowPassword(!showPassword)} isVisible={showPassword} /></span>
+                        </div>
+                        
+                        {error && <p className="text-sm text-center text-red-400 font-medium">{error}</p>}
+
+                        <button type="submit" disabled={isLoading} className="w-full py-3 font-bold text-white bg-gradient-to-r from-purple-600 to-cyan-500 rounded-lg hover:from-purple-700 hover:to-cyan-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-500 transition-all duration-300 shadow-lg shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isLoading ? <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mx-auto"></div> : 'Entrar'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const EditCustomerModal = ({ customer, onSave, onClose }) => {
+    const [formData, setFormData] = useState({ 
+        ...customer, 
+        plan: customer.planName || 'Basic' 
+    });
+
+    useEffect(() => {
+        setFormData({ ...customer, plan: customer.planName || 'Basic' });
+    }, [customer]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const selectedPlan = subscriptionPlans[formData.plan];
+        onSave({
+            ...formData,
+            planName: selectedPlan.name,
+            planValue: selectedPlan.value,
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 p-8 rounded-2xl shadow-lg w-full max-w-lg border border-slate-700">
+                <h2 className="text-2xl font-bold mb-6 text-cyan-400">Editar Cliente</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div><label className="text-sm mb-1 text-slate-300 block">Usuário</label><input type="text" name="username" value={formData.username} onChange={handleChange} className="w-full p-2 bg-slate-700 text-white rounded-md border border-slate-600" /></div>
+                    <div><label className="text-sm mb-1 text-slate-300 block">Senha</label><input type="text" name="password" value={formData.password} onChange={handleChange} className="w-full p-2 bg-slate-700 text-white rounded-md border border-slate-600" /></div>
+                    <div><label className="text-sm mb-1 text-slate-300 block">Plano</label>
+                        <select name="plan" value={formData.plan} onChange={handleChange} className="w-full p-2 bg-slate-700 text-white rounded-md border border-slate-600">
+                           {Object.keys(subscriptionPlans).map(planKey => (
+                               <option key={planKey} value={planKey}>{subscriptionPlans[planKey].name} - R${subscriptionPlans[planKey].value.toFixed(2)}</option>
+                           ))}
+                        </select>
+                    </div>
+                    <div><label className="text-sm mb-1 text-slate-300 block">Data de Expiração</label><input type="date" name="expirationDate" value={formData.expirationDate} onChange={handleChange} className="w-full p-2 bg-slate-700 text-white rounded-md border border-slate-600" style={{colorScheme: 'dark'}} /></div>
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors">Cancelar</button>
+                        <button type="submit" className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const StatCard = ({ title, value, icon, color }) => (
+    <div className={`bg-slate-800/50 backdrop-blur-sm p-5 rounded-2xl border border-slate-700/50 flex items-center gap-5`}>
+        <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
+            {icon}
+        </div>
+        <div>
+            <p className="text-slate-400 text-sm">{title}</p>
+            <p className="text-2xl font-bold text-white">{value}</p>
+        </div>
+    </div>
+);
+
+
+function AdminDashboard({ onLogout }) {
+    const [customers, setCustomers] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [newCustomer, setNewCustomer] = useState({ username: '', password: '', expirationDate: '', plan: 'Basic' });
+    const [notification, setNotification] = useState({ message: '', type: '' });
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingCustomer, setEditingCustomer] = useState(null);
+
+    useEffect(() => {
+        if (!db) { setIsLoading(false); setNotification({ message: "Falha na conexão.", type: "error" }); return; }
+        const q = collection(db, customersCollectionPath);
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            let customersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            customersData.sort((a, b) => {
+                if (a.paymentStatus === 'Pagamento em análise' && b.paymentStatus !== 'Pagamento em análise') return -1;
+                if (a.paymentStatus !== 'Pagamento em análise' && b.paymentStatus === 'Pagamento em análise') return 1;
+                return 0;
+            });
+            setCustomers(customersData);
+            setIsLoading(false);
+        }, (error) => { console.error("Erro ao buscar clientes:", error); setIsLoading(false); });
+        return () => unsubscribe();
+    }, []);
+
+    const showNotification = (message, type) => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification({ message: '', type: '' }), 3000);
+    };
+
+    const handleAddCustomer = async (e) => {
+        e.preventDefault();
+        if (!newCustomer.username || !newCustomer.password || !newCustomer.expirationDate) {
+            showNotification("Preencha todos os campos.", "error");
+            return;
+        }
+        try {
+            const selectedPlan = subscriptionPlans[newCustomer.plan];
+            const customerData = {
+                username: newCustomer.username.trim(),
+                password: newCustomer.password,
+                expirationDate: newCustomer.expirationDate,
+                paymentStatus: 'Pago',
+                accountStatus: 'Ativo',
+                planName: selectedPlan.name,
+                planValue: selectedPlan.value,
+            };
+            await addDoc(collection(db, customersCollectionPath), customerData);
+            showNotification("Cliente adicionado com sucesso!", "success");
+            setNewCustomer({ username: '', password: '', expirationDate: '', plan: 'Basic' });
+        } catch (error) { console.error("Erro ao adicionar cliente:", error); showNotification(`Erro: ${error.message}`, "error"); }
+    };
+
+    const handleUpdateCustomer = async (updatedCustomer) => {
+        const { id, ...data } = updatedCustomer;
+        const customerRef = doc(db, customersCollectionPath, id);
+        try {
+            await updateDoc(customerRef, data);
+            showNotification("Cliente atualizado com sucesso!", "success");
+            setIsEditModalOpen(false);
+            setEditingCustomer(null);
+        } catch (error) { console.error("Erro ao atualizar:", error); showNotification("Erro ao atualizar cliente.", "error"); }
+    };
+
+    const handleConfirmPayment = async (customerId, currentExpiration) => {
+        const customerRef = doc(db, customersCollectionPath, customerId);
+        try {
+            const newExpDate = new Date(currentExpiration + "T00:00:00");
+            newExpDate.setMonth(newExpDate.getMonth() + 1);
+            await updateDoc(customerRef, { paymentStatus: 'Pago', expirationDate: newExpDate.toISOString().split('T')[0] });
+            showNotification("Pagamento confirmado!", "success");
+        } catch (error) { console.error("Erro ao confirmar:", error); showNotification("Erro ao confirmar pagamento.", "error"); }
+    };
+    
+    const handleToggleAccountStatus = async (customer) => {
+        const newStatus = customer.accountStatus === 'Ativo' ? 'Suspenso' : 'Ativo';
+        const customerRef = doc(db, customersCollectionPath, customer.id);
+        try {
+            await updateDoc(customerRef, { accountStatus: newStatus });
+            showNotification(`Status alterado para ${newStatus}!`, "success");
+        } catch(error) { console.error("Erro ao alterar status:", error); showNotification("Erro ao alterar status.", "error"); }
+    };
+
+    const handleDeleteCustomer = async (customerId) => {
+        try {
+            await deleteDoc(doc(db, customersCollectionPath, customerId));
+            showNotification("Cliente excluído com sucesso!", "success");
+        } catch(error) { 
+            console.error("Erro ao excluir:", error); 
+            showNotification("Erro ao excluir cliente.", "error"); 
+        }
+    };
+
+    const getStatusChip = (status, type) => {
+        const styles = {
+            payment: { 
+                'Pago': 'bg-green-500/20 text-green-300', 
+                'Pagamento em análise': 'bg-yellow-500/20 text-yellow-300 animate-pulse',
+                'Pendente': 'bg-orange-500/20 text-orange-300'
+            },
+            account: { 
+                'Ativo': 'bg-cyan-500/20 text-cyan-300', 
+                'Suspenso': 'bg-red-500/20 text-red-300' 
+            }
+        };
+        return styles[type][status] || 'bg-slate-500/20 text-slate-300';
+    };
+
+    const totalClients = customers.length;
+    const activeClients = customers.filter(c => c.accountStatus === 'Ativo').length;
+    const pendingAnalysis = customers.filter(c => c.paymentStatus === 'Pagamento em análise').length;
+    const monthlyRevenue = customers
+        .filter(c => c.accountStatus === 'Ativo')
+        .reduce((acc, c) => acc + (c.planValue || 0), 0);
+
+    return (
+        <>
+            {isEditModalOpen && <EditCustomerModal customer={editingCustomer} onSave={handleUpdateCustomer} onClose={() => setIsEditModalOpen(false)} />}
+            <div className="relative min-h-screen w-full bg-slate-900 overflow-hidden text-white p-4 sm:p-6 lg:p-8">
+                <BackgroundBlobs />
+                <Notification message={notification.message} type={notification.type} onClose={() => setNotification({ message: '', type: '' })} />
+                <div className="relative z-10 max-w-7xl mx-auto">
+                    <header className="flex justify-between items-center mb-8">
+                        <h1 className="text-2xl sm:text-3xl font-bold text-white">Painel do <span className="text-cyan-400">Administrador</span></h1>
+                        <button onClick={onLogout} className="px-4 py-2 bg-red-600/80 text-white rounded-lg hover:bg-red-700 transition-colors">Sair</button>
+                    </header>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <StatCard title="Total de Clientes" value={totalClients} icon={<UserIcon />} color="bg-purple-600/80" />
+                        <StatCard title="Contas Ativas" value={activeClients} icon={<ToggleOnIcon />} color="bg-cyan-500/80" />
+                        <StatCard title="Pagamentos Pendentes" value={pendingAnalysis} icon={<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>} color="bg-orange-500/80" />
+                        <StatCard title="Receita Mensal" value={`R$ ${monthlyRevenue.toFixed(2)}`} icon={<DollarSignIcon />} color="bg-green-500/80" />
+                    </div>
+
+                    <div className="bg-slate-800/50 backdrop-blur-sm p-6 rounded-2xl mb-8 border border-slate-700/50">
+                        <h2 className="text-xl font-semibold mb-4 text-slate-100">Adicionar Novo Cliente</h2>
+                        <form onSubmit={handleAddCustomer} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                            <input type="text" name="username" placeholder="Usuário" value={newCustomer.username} onChange={(e) => setNewCustomer({...newCustomer, username: e.target.value})} className="p-2 bg-slate-700/50 text-white rounded-md border border-slate-600 focus:ring-1 focus:ring-cyan-500" />
+                            <input type="text" name="password" placeholder="Senha" value={newCustomer.password} onChange={(e) => setNewCustomer({...newCustomer, password: e.target.value})} className="p-2 bg-slate-700/50 text-white rounded-md border border-slate-600 focus:ring-1 focus:ring-cyan-500" />
+                            <select name="plan" value={newCustomer.plan} onChange={(e) => setNewCustomer({...newCustomer, plan: e.target.value})} className="p-2 bg-slate-700/50 text-white rounded-md border border-slate-600 focus:ring-1 focus:ring-cyan-500 h-[42px]">
+                                <option value="Basic">Basic - R$28,00</option>
+                                <option value="Deluxe">Deluxe - R$35,00</option>
+                            </select>
+                            <input type="date" name="expirationDate" value={newCustomer.expirationDate} onChange={(e) => setNewCustomer({...newCustomer, expirationDate: e.target.value})} className="p-2 bg-slate-700/50 text-white rounded-md border border-slate-600 focus:ring-1 focus:ring-cyan-500" style={{colorScheme: 'dark'}}/>
+                            <button type="submit" className="font-bold text-white bg-gradient-to-r from-purple-600 to-cyan-500 rounded-lg hover:from-purple-700 hover:to-cyan-600 h-10 transition-all duration-300">Adicionar</button>
+                        </form>
+                    </div>
+                    <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl overflow-hidden border border-slate-700/50">
+                        <h2 className="text-xl font-semibold p-6 text-slate-100">Gerenciar Clientes</h2>
+                        {isLoading ? <p className="text-center p-6">Carregando...</p> : (
+                            <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-900/40"><tr className="text-sm">
+                                    <th className="p-4 font-semibold text-slate-300">Usuário</th>
+                                    <th className="p-4 font-semibold text-slate-300">Plano</th>
+                                    <th className="p-4 font-semibold text-slate-300">Expira em</th>
+                                    <th className="p-4 font-semibold text-slate-300">Pagamento</th>
+                                    <th className="p-4 font-semibold text-slate-300">Status Conta</th>
+                                    <th className="p-4 font-semibold text-slate-300 text-center">Ações</th>
+                                </tr></thead>
+                                <tbody>{customers.map(c => {
+                                    const isExpired = new Date() > new Date(c.expirationDate + "T00:00:00");
+                                    let paymentDisplayStatus = c.paymentStatus;
+                                    if (isExpired && c.paymentStatus === 'Pago') {
+                                        paymentDisplayStatus = 'Pendente';
+                                    }
+                                    
+                                    return (
+                                        <tr key={c.id} className="border-b border-slate-700/50 last:border-0 hover:bg-slate-700/30 text-sm text-slate-200">
+                                            <td className="p-4 font-medium">{c.username}</td>
+                                            <td className="p-4">{c.planName || 'N/A'}</td>
+                                            <td className="p-4">{new Date(c.expirationDate + "T00:00:00").toLocaleDateString('pt-BR')}</td>
+                                            <td className="p-4"><span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusChip(paymentDisplayStatus, 'payment')}`}>{paymentDisplayStatus}</span></td>
+                                            <td className="p-4"><span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusChip(c.accountStatus, 'account')}`}>{c.accountStatus}</span></td>
+                                            <td className="p-4">
+                                                <div className="flex justify-center items-center gap-2">
+                                                    {c.paymentStatus === 'Pagamento em análise' && <button onClick={() => handleConfirmPayment(c.id, c.expirationDate)} className="bg-green-600 text-white px-3 py-1.5 rounded-md text-xs hover:bg-green-700 transition-all">Confirmar</button>}
+                                                    <button onClick={() => { setEditingCustomer(c); setIsEditModalOpen(true); }} className="p-2 rounded-md hover:bg-slate-600 text-slate-300 hover:text-cyan-400 transition-all"><EditIcon/></button>
+                                                    <button onClick={() => handleToggleAccountStatus(c)} className="p-2 rounded-md hover:bg-slate-600 text-slate-300 hover:text-cyan-400 transition-all">{c.accountStatus === 'Ativo' ? <ToggleOnIcon/> : <ToggleOffIcon/>}</button>
+                                                    <button onClick={() => handleDeleteCustomer(c.id)} className="p-2 rounded-md hover:bg-slate-600 text-slate-300 hover:text-red-400 transition-all"><TrashIcon/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                                </tbody>
+                            </table>
+                            </div>
+                        )}
+                        {customers.length === 0 && !isLoading && <p className="text-center p-6 text-slate-400">Nenhum cliente encontrado.</p>}
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+}
+
+function CustomerDashboard({ customer, onLogout }) {
+    const [currentCustomer, setCurrentCustomer] = useState(customer);
+    const [notification, setNotification] = useState({ message: '', type: '' });
+    const [pixCopied, setPixCopied] = useState(false);
+
+    useEffect(() => {
+        if(!db || !customer?.id) return;
+        const customerRef = doc(db, customersCollectionPath, customer.id);
+        const unsubscribe = onSnapshot(customerRef, (doc) => {
+            if(doc.exists()){
+                setCurrentCustomer({ id: doc.id, ...doc.data() });
+            }
+        });
+        return () => unsubscribe();
+    }, [customer.id]);
+
+    const showNotification = (message, type) => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification({ message: '', type: '' }), 5000);
+    };
+
+    const handleCopyPix = () => {
+        const pixKey = "iagobaggio1@hotmail.com";
+        const textArea = document.createElement("textarea");
+        textArea.value = pixKey;
+        textArea.style.position = "absolute";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            setPixCopied(true);
+            setTimeout(() => setPixCopied(false), 2000);
+        } catch (err) {
+            console.error('Falha ao copiar a chave PIX: ', err);
+        }
+        document.body.removeChild(textArea);
+    };
+
+    const handleNotifyPayment = async () => {
+        if (currentCustomer.paymentStatus === 'Pagamento em análise') return;
+        try {
+            await updateDoc(doc(db, customersCollectionPath, currentCustomer.id), { paymentStatus: 'Pagamento em análise' });
+            showNotification("Pagamento notificado! O administrador irá analisar.", "success");
+        } catch (error) { console.error("Erro ao notificar:", error); showNotification("Erro ao notificar pagamento.", "error"); }
+    };
+    
+    const handleCardPaymentRedirect = () => {
+        const plan = subscriptionPlans[currentCustomer.planName];
+        if (plan && plan.link) {
+            window.open(plan.link, '_blank');
+        } else {
+            showNotification("Link de pagamento para este plano não está disponível.", "error");
+        }
+    };
+
+    const expirationDate = currentCustomer.expirationDate ? new Date(currentCustomer.expirationDate + "T00:00:00") : new Date();
+    const isExpired = new Date() > expirationDate;
+    const isPending = isExpired && currentCustomer.paymentStatus === 'Pago';
+
+    return (
+        <div className="relative min-h-screen w-full bg-slate-900 overflow-hidden">
+            <BackgroundBlobs />
+            <Notification message={notification.message} type={notification.type} onClose={() => setNotification({ message: '', type: '' })} />
+             <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+                <div className="w-full max-w-2xl bg-slate-800/50 backdrop-blur-sm rounded-2xl shadow-lg p-8 border border-slate-700/50">
+                    <header className="flex justify-between items-start mb-6">
+                        <div><h1 className="text-2xl font-bold text-cyan-400">Bem-vindo, {currentCustomer.username}!</h1><p className="text-slate-400">Este é o seu portal de cliente.</p></div>
+                        <button onClick={onLogout} className="px-4 py-2 bg-red-600/80 text-white rounded-lg hover:bg-red-700 transition-colors">Sair</button>
+                    </header>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div className={`p-6 rounded-xl ${isPending ? 'bg-orange-500/20 border-orange-500' : 'bg-green-500/20 border-green-500'} border`}>
+                            <h2 className="text-lg font-semibold mb-2">
+                                {isPending ? 'Sua assinatura está pendente' : 'Status da sua assinatura'}
+                            </h2>
+                            <p className="text-3xl font-bold">Válida até: {expirationDate.toLocaleDateString('pt-BR')}</p>
+                            {currentCustomer.paymentStatus === 'Pagamento em análise' && <p className="mt-2 text-yellow-300">Seu pagamento está sendo analisado.</p>}
+                        </div>
+                        <div className="p-6 rounded-xl bg-purple-500/20 border-purple-500 border">
+                            <h2 className="text-lg font-semibold mb-2">Seu Plano</h2>
+                            <p className="text-3xl font-bold">{currentCustomer.planName}</p>
+                            <p className="text-slate-300 mt-2 text-xl">R$ {currentCustomer.planValue ? currentCustomer.planValue.toFixed(2) : '0.00'}</p>
+                        </div>
+                    </div>
+                    <div className="bg-slate-700/50 p-6 rounded-xl">
+                        <h2 className="text-xl font-semibold mb-4 text-slate-100">Renove sua assinatura</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-slate-800 p-4 rounded-lg">
+                                <h3 className="font-semibold text-lg mb-2">Pagamento via PIX</h3>
+                                <p className="text-sm text-slate-400 mb-2">Use a chave abaixo:</p>
+                                <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-md">
+                                    <p className="flex-grow text-cyan-400 font-mono break-all text-sm">iagobaggio1@hotmail.com</p>
+                                    <button onClick={handleCopyPix} className="bg-cyan-500 text-white px-3 py-1 rounded-md hover:bg-cyan-600 text-sm whitespace-nowrap transition-all">
+                                        {pixCopied ? 'Copiado!' : 'Copiar'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="bg-slate-800 p-4 rounded-lg"><h3 className="font-semibold text-lg mb-2">Pagamento via Cartão</h3><p className="text-sm text-slate-400 mb-2">Clique para pagar:</p><button onClick={handleCardPaymentRedirect} className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700">Pagar com Cartão</button></div>
+                        </div>
+                        <div className="mt-6 text-center">
+                            <p className="text-slate-400 mb-3">Após realizar o pagamento, clique abaixo para notificar.</p>
+                            <button onClick={handleNotifyPayment} disabled={currentCustomer.paymentStatus === 'Pagamento em análise'} className="w-full md:w-auto px-8 py-3 font-semibold text-white bg-gradient-to-r from-purple-600 to-cyan-500 rounded-lg hover:from-purple-700 hover:to-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                {currentCustomer.paymentStatus === 'Pagamento em análise' ? 'Pagamento já notificado' : 'Notificar Pagamento'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default function App() {
+    const [user, setUser] = useState(null);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    
+    useEffect(() => {
+        let isMounted = true;
+        const unsubscribe = auth ? onAuthStateChanged(auth, (authUser) => {
+            if(isMounted && !isAuthReady) {
+              setIsAuthReady(true);
+            }
+        }) : () => {};
+
+        try {
+            const loggedInUser = sessionStorage.getItem('iptv_user');
+            if (loggedInUser) setUser(JSON.parse(loggedInUser));
+            const adminStatus = sessionStorage.getItem('iptv_isAdmin');
+            if (adminStatus) setIsAdmin(JSON.parse(adminStatus));
+        } catch (e) {
+            console.error("Failed to parse session storage:", e);
+            sessionStorage.clear();
+        }
+
+        if (!auth && isMounted) setIsAuthReady(true);
+        
+        return () => { isMounted = false; unsubscribe(); };
+    }, []);
+
+    const handleLogin = (customerData) => { setUser(customerData); sessionStorage.setItem('iptv_user', JSON.stringify(customerData)); };
+    const handleAdminLogin = () => { setIsAdmin(true); sessionStorage.setItem('iptv_isAdmin', 'true'); };
+    const handleLogout = () => { setUser(null); setIsAdmin(false); sessionStorage.clear(); };
+    
+    if (!isAuthReady) return <LoadingSpinner />;
+    if (!db) return (
+        <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white p-4">
+             <div className="w-full max-w-md p-8 text-center bg-slate-800/50 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-700/50">
+                 <h1 className="text-2xl font-bold text-red-400 mb-4">Erro de Configuração</h1>
+                 <p className="text-slate-300">Não foi possível conectar ao Firebase.</p>
+             </div>
+        </div>
+    );
+    
+    if (isAdmin) return <AdminDashboard onLogout={handleLogout} />;
+    if (user) return <CustomerDashboard customer={user} onLogout={handleLogout} />;
+    return <LoginPage onLogin={handleLogin} onAdminLogin={handleAdminLogin} />;
+}
